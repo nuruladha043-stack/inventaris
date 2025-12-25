@@ -1,33 +1,73 @@
-class InventorySystem:
-    def __init__(self):
-        self.inventory = {} # Format: { product_id: { 'qty': 0, 'total_cost': 0 } }
+ import streamlit as st
+import pandas as pd
 
-    def stock_in(self, product_id, qty, unit_price):
-        if product_id not in self.inventory:
-            self.inventory[product_id] = {'qty': 0, 'total_cost': 0}
-        
-        self.inventory[product_id]['qty'] += qty
-        self.inventory[product_id]['total_cost'] += (qty * unit_price)
-        print(f"Masuk: {qty} unit. Harga Rata-rata sekarang: {self.get_avg_price(product_id)}")
+# Konfigurasi Halaman
+st.set_page_config(page_title="Sistem Inventaris Akuntansi", layout="wide")
 
-    def get_avg_price(self, product_id):
-        data = self.inventory.get(product_id)
-        if data and data['qty'] > 0:
-            return data['total_cost'] / data['qty']
-        return 0
+st.title("📦 Sistem Manajemen Inventaris & HPP")
+st.subheader("Metode Penilaian: Average Cost")
 
-    def stock_out(self, product_id, qty):
-        if product_id in self.inventory and self.inventory[product_id]['qty'] >= qty:
-            avg_price = self.get_avg_price(product_id)
-            hpp = qty * avg_price
-            self.inventory[product_id]['qty'] -= qty
-            self.inventory[product_id]['total_cost'] -= hpp
-            print(f"Keluar: {qty} unit. HPP (Beban): Rp{hpp}")
+# Inisialisasi Database Sederhana di Session State
+if 'inventory' not in st.session_state:
+    st.session_state.inventory = {}
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+# Sidebar untuk Input
+with st.sidebar:
+    st.header("Input Transaksi")
+    action = st.selectbox("Jenis Transaksi", ["Barang Masuk (Beli)", "Barang Keluar (Jual)"])
+    item_name = st.text_input("Nama Barang", placeholder="Contoh: Kopi Bubuk")
+    qty = st.number_input("Jumlah (Qty)", min_value=1, value=1)
+    price = st.number_input("Harga per Unit (Rp)", min_value=0, value=1000)
+    
+    if st.button("Simpan Transaksi"):
+        if item_name:
+            if item_name not in st.session_state.inventory:
+                st.session_state.inventory[item_name] = {'qty': 0, 'total_cost': 0}
+            
+            inv = st.session_state.inventory[item_name]
+            
+            if action == "Barang Masuk (Beli)":
+                inv['qty'] += qty
+                inv['total_cost'] += (qty * price)
+                st.session_state.history.append({"Tipe": "Masuk", "Barang": item_name, "Qty": qty, "Harga": price})
+                st.success("Data Masuk Tersimpan!")
+            
+            elif action == "Barang Keluar (Jual)":
+                if inv['qty'] >= qty:
+                    avg_cost = inv['total_cost'] / inv['qty']
+                    inv['qty'] -= qty
+                    inv['total_cost'] -= (qty * avg_cost)
+                    st.session_state.history.append({"Tipe": "Keluar", "Barang": item_name, "Qty": qty, "Harga": avg_cost})
+                    st.warning(f"Data Keluar Tersimpan! HPP dihitung: Rp{avg_cost:,.2f}")
+                else:
+                    st.error("Stok tidak mencukupi!")
         else:
-            print("Error: Stok tidak mencukupi!")
+            st.error("Nama barang harus diisi!")
 
-# Simulasi
-inv = InventorySystem()
-inv.stock_in("Kopi-01", 10, 5000)  # Beli 10 pcs harga 5000
-inv.stock_in("Kopi-01", 5, 8000)   # Beli lagi 5 pcs harga 8000 (harga naik)
-inv.stock_out("Kopi-01", 3)        # Jual 3 pcs (HPP dihitung dari rata-rata)
+# Dashboard Utama
+col1, col2 = st.columns(2)
+
+with col1:
+    st.write("### 📊 Status Stok Saat Ini")
+    if st.session_state.inventory:
+        df_inv = pd.DataFrame.from_dict(st.session_state.inventory, orient='index').reset_index()
+        df_inv.columns = ['Nama Barang', 'Stok Tersedia', 'Total Nilai Aset (Rp)']
+        df_inv['Harga Rata-rata'] = df_inv['Total Nilai Aset (Rp)'] / df_inv['Stok Tersedia']
+        st.dataframe(df_inv.style.format({"Total Nilai Aset (Rp)": "{:,.0f}", "Harga Rata-rata": "{:,.0f}"}), use_container_width=True)
+    else:
+        st.info("Belum ada data stok.")
+
+with col2:
+    st.write("### 📜 Riwayat Transaksi")
+    if st.session_state.history:
+        st.table(pd.DataFrame(st.session_state.history))
+    else:
+        st.info("Belum ada riwayat.")
+
+# Tombol Reset
+if st.button("Hapus Semua Data"):
+    st.session_state.inventory = {}
+    st.session_state.history = []
+    st.rerun()
